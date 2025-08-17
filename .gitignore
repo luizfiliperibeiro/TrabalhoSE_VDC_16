@@ -1,0 +1,6 @@
+build
+.vscode
+pico-sdk
+gy_33_disp.c
+ilumi_bh1750.c
+pico_sdk_import.cmake
