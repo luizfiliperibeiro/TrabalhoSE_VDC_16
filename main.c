@@ -22,76 +22,80 @@
 #include "ws2812.h"
 
 // =================== Barramentos ===================
-#define I2C_SENS         i2c0
-#define I2C_SENS_SDA     0
-#define I2C_SENS_SCL     1
+#define I2C_SENS i2c0
+#define I2C_SENS_SDA 0
+#define I2C_SENS_SCL 1
 
-#define I2C_DISP         i2c1
-#define I2C_DISP_SDA     14
-#define I2C_DISP_SCL     15
-#define OLED_ADDR        0x3C
+#define I2C_DISP i2c1
+#define I2C_DISP_SDA 14
+#define I2C_DISP_SCL 15
+#define OLED_ADDR 0x3C
 
 // =================== GY-33 / TCS34725 (I2C0) ===================
-#define GY33_ADDR        0x29
-#define REG_ENABLE       0x80
-#define REG_ATIME        0x81
-#define REG_CONTROL      0x8F
-#define REG_CDATA        0x94
-#define REG_RDATA        0x96
-#define REG_GDATA        0x98
-#define REG_BDATA        0x9A
+#define GY33_ADDR 0x29
+#define REG_ENABLE 0x80
+#define REG_ATIME 0x81
+#define REG_CONTROL 0x8F
+#define REG_CDATA 0x94
+#define REG_RDATA 0x96
+#define REG_GDATA 0x98
+#define REG_BDATA 0x9A
 
 // =================== WS2812 ===================
-#define WS2812_PIN       7
-#define WS2812_COUNT     25
+#define WS2812_PIN 7
+#define WS2812_COUNT 25
 
 // =================== Buzzer PWM ===================
-#define BUZZER_PIN       21
+#define BUZZER_PIN 21
 
 // =================== Botões ===================
-#define BTN_A_PIN        5   // alterna modos LED RGB
-#define BTN_B_PIN        6   // BOOTSEL
+#define BTN_A_PIN 5 // alterna modos LED RGB
+#define BTN_B_PIN 6 // BOOTSEL
 
 // =================== LED RGB Discreto ===================
-#define LED_R_PIN        13
-#define LED_G_PIN        11
-#define LED_B_PIN        12
+#define LED_R_PIN 13
+#define LED_G_PIN 11
+#define LED_B_PIN 12
 #define LED_COMMON_ANODE 0
 
 // =================== Parâmetros ===================
-#define LUX_LOW_THRESHOLD      10
-#define LOOP_DELAY_MS          300
-#define BUZZER_ALERT_MS        150
-#define BTN_DEBOUNCE_MS        180
+#define LUX_LOW_THRESHOLD 10
+#define LOOP_DELAY_MS 300
+#define BUZZER_ALERT_MS 150
+#define BTN_DEBOUNCE_MS 180
 
-#define RED_MIN_RAW            500
-#define GREEN_MIN_RAW          500
-#define BLUE_MIN_RAW           500
-#define RED_INTENSE_RAW        10000
-#define DOMINANCE_MARGIN_RAW   200
+#define RED_MIN_RAW 500
+#define GREEN_MIN_RAW 500
+#define BLUE_MIN_RAW 500
+#define RED_INTENSE_RAW 10000
+#define DOMINANCE_MARGIN_RAW 200
 
 // =================== Globais ===================
 ssd1306_t ssd;
-ws2812_t  ws;
+ws2812_t ws;
 static volatile uint32_t last_btn_a_ms = 0;
 
 // -------------------- Utilidades de I2C (GY-33) --------------------
-static inline void gy33_write_u8(uint8_t reg, uint8_t val) {
-    uint8_t buf[2] = { reg, val };
+static inline void gy33_write_u8(uint8_t reg, uint8_t val)
+{
+    uint8_t buf[2] = {reg, val};
     i2c_write_blocking(I2C_SENS, GY33_ADDR, buf, 2, false);
 }
-static inline uint16_t gy33_read_u16(uint8_t reg) {
+static inline uint16_t gy33_read_u16(uint8_t reg)
+{
     uint8_t b[2];
     i2c_write_blocking(I2C_SENS, GY33_ADDR, &reg, 1, true);
     i2c_read_blocking(I2C_SENS, GY33_ADDR, b, 2, false);
     return ((uint16_t)b[1] << 8) | b[0];
 }
-static void gy33_init(void) {
-    gy33_write_u8(REG_ENABLE,  0x03);
-    gy33_write_u8(REG_ATIME,   0xD5);
+static void gy33_init(void)
+{
+    gy33_write_u8(REG_ENABLE, 0x03);
+    gy33_write_u8(REG_ATIME, 0xD5);
     gy33_write_u8(REG_CONTROL, 0x00);
 }
-static void gy33_read_rgbc(uint16_t* r, uint16_t* g, uint16_t* b, uint16_t* c) {
+static void gy33_read_rgbc(uint16_t *r, uint16_t *g, uint16_t *b, uint16_t *c)
+{
     *c = gy33_read_u16(REG_CDATA);
     *r = gy33_read_u16(REG_RDATA);
     *g = gy33_read_u16(REG_GDATA);
@@ -99,19 +103,27 @@ static void gy33_read_rgbc(uint16_t* r, uint16_t* g, uint16_t* b, uint16_t* c) {
 }
 
 // -------------------- OLED --------------------
-static const char* nome_cor(uint16_t r, uint16_t g, uint16_t b) {
+static const char *nome_cor(uint16_t r, uint16_t g, uint16_t b)
+{
     if (r >= RED_INTENSE_RAW && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW)
         return "Vermelho (intenso)";
-    if (r >= RED_MIN_RAW   && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW) return "Vermelho";
-    if (g >= GREEN_MIN_RAW && g > r + DOMINANCE_MARGIN_RAW && g > b + DOMINANCE_MARGIN_RAW) return "Verde";
-    if (b >= BLUE_MIN_RAW  && b > r + DOMINANCE_MARGIN_RAW && b > g + DOMINANCE_MARGIN_RAW) return "Azul";
-    if (r >= RED_MIN_RAW && g >= GREEN_MIN_RAW && b <  BLUE_MIN_RAW)  return "Amarelo";
-    if (r >= RED_MIN_RAW && b >= BLUE_MIN_RAW  && g <  GREEN_MIN_RAW) return "Magenta";
-    if (g >= GREEN_MIN_RAW && b >= BLUE_MIN_RAW && r < RED_MIN_RAW)   return "Ciano";
+    if (r >= RED_MIN_RAW && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW)
+        return "Vermelho";
+    if (g >= GREEN_MIN_RAW && g > r + DOMINANCE_MARGIN_RAW && g > b + DOMINANCE_MARGIN_RAW)
+        return "Verde";
+    if (b >= BLUE_MIN_RAW && b > r + DOMINANCE_MARGIN_RAW && b > g + DOMINANCE_MARGIN_RAW)
+        return "Azul";
+    if (r >= RED_MIN_RAW && g >= GREEN_MIN_RAW && b < BLUE_MIN_RAW)
+        return "Amarelo";
+    if (r >= RED_MIN_RAW && b >= BLUE_MIN_RAW && g < GREEN_MIN_RAW)
+        return "Magenta";
+    if (g >= GREEN_MIN_RAW && b >= BLUE_MIN_RAW && r < RED_MIN_RAW)
+        return "Ciano";
     return "Mista";
 }
 
-static void oled_init_ui(void) {
+static void oled_init_ui(void)
+{
     i2c_init(I2C_DISP, 400 * 1000);
     gpio_set_function(I2C_DISP_SDA, GPIO_FUNC_I2C);
     gpio_set_function(I2C_DISP_SCL, GPIO_FUNC_I2C);
@@ -122,47 +134,63 @@ static void oled_init_ui(void) {
     ssd1306_fill(&ssd, false);
     ssd1306_send_data(&ssd);
 }
-static void oled_draw_status(uint16_t lux, uint16_t r, uint16_t g, uint16_t b, uint16_t c, const char* cor_nome, const char* modo) {
-    char l1[32], l2[32], l3[32], l4[24];
-    snprintf(l1, sizeof(l1), "Lux: %u", lux);
-    snprintf(l2, sizeof(l2), "R:%u G:%u", r, g);
-    snprintf(l3, sizeof(l3), "B:%u C:%u", b, c);
-    snprintf(l4, sizeof(l4), "Modo: %s", modo);
+static void oled_draw_status(uint16_t lux, uint16_t r, uint16_t g, uint16_t b, uint16_t c,
+                             const char *cor_nome, const char *modo)
+{
+    char l1[32], l2[32], l3[32], l4[32], l5[32];
 
-    bool on = true;
-    ssd1306_fill(&ssd, !on);
-    ssd1306_rect(&ssd, 2, 2, 124, 60, on, !on);
-    ssd1306_draw_string(&ssd, "EMBARCATECH", 14, 6);
-    ssd1306_draw_string(&ssd, l1, 8, 18);
-    ssd1306_draw_string(&ssd, l2, 8, 30);
-    ssd1306_draw_string(&ssd, l3, 8, 42);
-    ssd1306_draw_string(&ssd, cor_nome, 82, 18);
-    ssd1306_draw_string(&ssd, l4, 8, 54);
+    // Prepara strings
+    snprintf(l1, sizeof(l1), "Modo: %s", modo);
+    snprintf(l2, sizeof(l2), "Lux: %u", lux);
+    snprintf(l3, sizeof(l3), "Cor: %s", cor_nome);
+    snprintf(l4, sizeof(l4), "R:%u  G:%u", r, g);
+    snprintf(l5, sizeof(l5), "B:%u  C:%u", b, c);
+
+    // Limpa tela
+    ssd1306_fill(&ssd, 0);
+
+    // Borda (opcional)
+    ssd1306_rect(&ssd, 0, 0, 127, 63, true, false);
+
+    // Exibe informações organizadas (cada linha em sua posição)
+    ssd1306_draw_string(&ssd, l1, 8, 6);  // Modo
+    ssd1306_draw_string(&ssd, l2, 8, 18); // Lux
+    ssd1306_draw_string(&ssd, l3, 8, 30); // Cor
+    ssd1306_draw_string(&ssd, l4, 8, 42); // R e G
+    ssd1306_draw_string(&ssd, l5, 8, 54); // B e C
+
+    // Atualiza display
     ssd1306_send_data(&ssd);
 }
 
 // -------------------- WS2812 --------------------
 static uint8_t clamp_u8(int v) { return (v < 0) ? 0 : (v > 255 ? 255 : (uint8_t)v); }
-static uint8_t brightness_from_lux(uint16_t lux) {
+static uint8_t brightness_from_lux(uint16_t lux)
+{
     float L = lux > 1000 ? 1000.0f : (float)lux;
-    int b = (int)(5 + (L/1000.0f)*250.0f);
+    int b = (int)(5 + (L / 1000.0f) * 250.0f);
     return clamp_u8(b);
 }
-static void ws2812_fill_color(ws2812_t* w, uint8_t r, uint8_t g, uint8_t b) {
-    for (uint i = 0; i < WS2812_COUNT; i++) ws2812_set_pixel(w, i, r, g, b);
+static void ws2812_fill_color(ws2812_t *w, uint8_t r, uint8_t g, uint8_t b)
+{
+    for (uint i = 0; i < WS2812_COUNT; i++)
+        ws2812_set_pixel(w, i, r, g, b);
     ws2812_show(w);
 }
 
 // -------------------- Buzzer (PWM) --------------------
 static uint slice_buzzer;
-static void buzzer_init(void) {
+static void buzzer_init(void)
+{
     gpio_set_function(BUZZER_PIN, GPIO_FUNC_PWM);
     slice_buzzer = pwm_gpio_to_slice_num(BUZZER_PIN);
     pwm_set_enabled(slice_buzzer, true);
     pwm_set_wrap(slice_buzzer, 2000); // TOP fixo
 }
-static void buzzer_tone(uint32_t freq_hz, uint16_t ms) {
-    if (freq_hz == 0) {
+static void buzzer_tone(uint32_t freq_hz, uint16_t ms)
+{
+    if (freq_hz == 0)
+    {
         pwm_set_gpio_level(BUZZER_PIN, 0);
         sleep_ms(ms);
         return;
@@ -170,8 +198,10 @@ static void buzzer_tone(uint32_t freq_hz, uint16_t ms) {
 
     uint32_t f_sys = clock_get_hz(clk_sys);
     float div = (float)f_sys / (freq_hz * (2001));
-    if (div < 1.0f) div = 1.0f;
-    if (div > 255.0f) div = 255.0f;
+    if (div < 1.0f)
+        div = 1.0f;
+    if (div > 255.0f)
+        div = 255.0f;
 
     pwm_set_clkdiv(slice_buzzer, div);
     pwm_set_gpio_level(BUZZER_PIN, 1000); // 50% duty (2000/2)
@@ -181,13 +211,17 @@ static void buzzer_tone(uint32_t freq_hz, uint16_t ms) {
 }
 
 // -------------------- LED RGB Discreto --------------------
-static inline void led_rgb_init(void) {
-    gpio_init(LED_R_PIN); gpio_init(LED_G_PIN); gpio_init(LED_B_PIN);
+static inline void led_rgb_init(void)
+{
+    gpio_init(LED_R_PIN);
+    gpio_init(LED_G_PIN);
+    gpio_init(LED_B_PIN);
     gpio_set_dir(LED_R_PIN, GPIO_OUT);
     gpio_set_dir(LED_G_PIN, GPIO_OUT);
     gpio_set_dir(LED_B_PIN, GPIO_OUT);
 }
-static inline void led_rgb_set_raw(bool r_on, bool g_on, bool b_on) {
+static inline void led_rgb_set_raw(bool r_on, bool g_on, bool b_on)
+{
     bool r_lvl = LED_COMMON_ANODE ? !r_on : r_on;
     bool g_lvl = LED_COMMON_ANODE ? !g_on : g_on;
     bool b_lvl = LED_COMMON_ANODE ? !b_on : b_on;
@@ -195,14 +229,15 @@ static inline void led_rgb_set_raw(bool r_on, bool g_on, bool b_on) {
     gpio_put(LED_G_PIN, g_lvl);
     gpio_put(LED_B_PIN, b_lvl);
 }
-static inline void led_rgb_off(void) { led_rgb_set_raw(false,false,false); }
-static inline void led_rgb_red(void) { led_rgb_set_raw(true,false,false); }
-static inline void led_rgb_grn(void) { led_rgb_set_raw(false,true,false); }
-static inline void led_rgb_blu(void) { led_rgb_set_raw(false,false,true); }
-static inline void led_rgb_wht(void) { led_rgb_set_raw(true,true,true); }
+static inline void led_rgb_off(void) { led_rgb_set_raw(false, false, false); }
+static inline void led_rgb_red(void) { led_rgb_set_raw(true, false, false); }
+static inline void led_rgb_grn(void) { led_rgb_set_raw(false, true, false); }
+static inline void led_rgb_blu(void) { led_rgb_set_raw(false, false, true); }
+static inline void led_rgb_wht(void) { led_rgb_set_raw(true, true, true); }
 
 // -------------------- Modo de Cor --------------------
-typedef enum {
+typedef enum
+{
     MODO_SENSOR = 0,
     MODO_VERMELHO,
     MODO_VERDE,
@@ -213,31 +248,46 @@ typedef enum {
 } modo_rgb_t;
 
 static volatile modo_rgb_t modo_atual = MODO_SENSOR;
-static const char* modo_nome(modo_rgb_t m) {
-    switch(m) {
-        case MODO_SENSOR:   return "Sensor";
-        case MODO_VERMELHO: return "Vermelho";
-        case MODO_VERDE:    return "Verde";
-        case MODO_AZUL:     return "Azul";
-        case MODO_BRANCO:   return "Branco";
-        case MODO_APAGADO:  return "Apagado";
-        default:            return "?";
+static const char *modo_nome(modo_rgb_t m)
+{
+    switch (m)
+    {
+    case MODO_SENSOR:
+        return "Sensor";
+    case MODO_VERMELHO:
+        return "Vermelho";
+    case MODO_VERDE:
+        return "Verde";
+    case MODO_AZUL:
+        return "Azul";
+    case MODO_BRANCO:
+        return "Branco";
+    case MODO_APAGADO:
+        return "Apagado";
+    default:
+        return "?";
     }
 }
 
-static void btn_a_irq(uint gpio, uint32_t events) {
-    if (gpio != BTN_A_PIN) return;
+static void btn_a_irq(uint gpio, uint32_t events)
+{
+    if (gpio != BTN_A_PIN)
+        return;
     uint32_t now = to_ms_since_boot(get_absolute_time());
-    if (now - last_btn_a_ms < BTN_DEBOUNCE_MS) return;
+    if (now - last_btn_a_ms < BTN_DEBOUNCE_MS)
+        return;
     last_btn_a_ms = now;
     modo_atual = (modo_rgb_t)((modo_atual + 1) % MODO__MAX);
 }
-static void bootsel_irq(uint gpio, uint32_t events) {
-    if (gpio == BTN_B_PIN) reset_usb_boot(0, 0);
+static void bootsel_irq(uint gpio, uint32_t events)
+{
+    if (gpio == BTN_B_PIN)
+        reset_usb_boot(0, 0);
 }
 
 // -------------------- MAIN --------------------
-int main(void) {
+int main(void)
+{
     stdio_init_all();
 
     gpio_init(BTN_B_PIN);
@@ -270,51 +320,105 @@ int main(void) {
 
     sleep_ms(300);
 
-    while (true) {
+    while (true)
+    {
         uint16_t lux = bh1750_read_measurement(I2C_SENS);
         uint16_t r, g, b, c;
         gy33_read_rgbc(&r, &g, &b, &c);
         printf("Lux=%u | R=%u G=%u B=%u C=%u | Modo=%s\n", lux, r, g, b, c, modo_nome(modo_atual));
 
-        const char* ncor = nome_cor(r, g, b);
+        const char *ncor = nome_cor(r, g, b);
 
-        if (modo_atual == MODO_SENSOR) {
+        if (modo_atual == MODO_SENSOR)
+        {
             uint8_t bright = brightness_from_lux(lux);
-            uint8_t baseR=0, baseG=0, baseB=0;
+            uint8_t baseR = 0, baseG = 0, baseB = 0;
 
-            if (!strcmp(ncor, "Vermelho") || !strcmp(ncor, "Vermelho (intenso)")) { baseR=255; }
-            else if (!strcmp(ncor, "Verde")) { baseG=255; }
-            else if (!strcmp(ncor, "Azul")) { baseB=255; }
-            else if (!strcmp(ncor, "Amarelo")) { baseR=255; baseG=255; }
-            else if (!strcmp(ncor, "Magenta")) { baseR=255; baseB=255; }
-            else if (!strcmp(ncor, "Ciano")) { baseG=255; baseB=255; }
-            else if (!strcmp(ncor, "Mista")) { baseR=255; baseG=255; baseB=255; }
+            if (!strcmp(ncor, "Vermelho") || !strcmp(ncor, "Vermelho (intenso)"))
+            {
+                baseR = 255;
+            }
+            else if (!strcmp(ncor, "Verde"))
+            {
+                baseG = 255;
+            }
+            else if (!strcmp(ncor, "Azul"))
+            {
+                baseB = 255;
+            }
+            else if (!strcmp(ncor, "Amarelo"))
+            {
+                baseR = 255;
+                baseG = 255;
+            }
+            else if (!strcmp(ncor, "Magenta"))
+            {
+                baseR = 255;
+                baseB = 255;
+            }
+            else if (!strcmp(ncor, "Ciano"))
+            {
+                baseG = 255;
+                baseB = 255;
+            }
+            else if (!strcmp(ncor, "Mista"))
+            {
+                baseR = 255;
+                baseG = 255;
+                baseB = 255;
+            }
 
-            uint8_t r8  = (uint8_t)((baseR * bright) / 255);
+            uint8_t r8 = (uint8_t)((baseR * bright) / 255);
             uint8_t g8_ = (uint8_t)((baseG * bright) / 255);
-            uint8_t b8  = (uint8_t)((baseB * bright) / 255);
+            uint8_t b8 = (uint8_t)((baseB * bright) / 255);
             ws2812_fill_color(&ws, r8, g8_, b8);
 
-            if (r >= RED_INTENSE_RAW && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW)      led_rgb_red();
-            else if (r >= RED_MIN_RAW   && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW)    led_rgb_red();
-            else if (g >= GREEN_MIN_RAW && g > r + DOMINANCE_MARGIN_RAW && g > b + DOMINANCE_MARGIN_RAW)    led_rgb_grn();
-            else if (b >= BLUE_MIN_RAW  && b > r + DOMINANCE_MARGIN_RAW && b > g + DOMINANCE_MARGIN_RAW)    led_rgb_blu();
-            else                                                                                              led_rgb_wht();
-        } else {
-            switch (modo_atual) {
-                case MODO_VERMELHO: led_rgb_red();  ws2812_fill_color(&ws, 255,   0,   0); break;
-                case MODO_VERDE:    led_rgb_grn();  ws2812_fill_color(&ws,   0, 255,   0); break;
-                case MODO_AZUL:     led_rgb_blu();  ws2812_fill_color(&ws,   0,   0, 255); break;
-                case MODO_BRANCO:   led_rgb_wht();  ws2812_fill_color(&ws, 255, 255, 255); break;
-                case MODO_APAGADO:  led_rgb_off();  ws2812_fill_color(&ws,   0,   0,   0); break;
-                default: break;
+            if (r >= RED_INTENSE_RAW && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW)
+                led_rgb_red();
+            else if (r >= RED_MIN_RAW && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW)
+                led_rgb_red();
+            else if (g >= GREEN_MIN_RAW && g > r + DOMINANCE_MARGIN_RAW && g > b + DOMINANCE_MARGIN_RAW)
+                led_rgb_grn();
+            else if (b >= BLUE_MIN_RAW && b > r + DOMINANCE_MARGIN_RAW && b > g + DOMINANCE_MARGIN_RAW)
+                led_rgb_blu();
+            else
+                led_rgb_wht();
+        }
+        else
+        {
+            switch (modo_atual)
+            {
+            case MODO_VERMELHO:
+                led_rgb_red();
+                ws2812_fill_color(&ws, 255, 0, 0);
+                break;
+            case MODO_VERDE:
+                led_rgb_grn();
+                ws2812_fill_color(&ws, 0, 255, 0);
+                break;
+            case MODO_AZUL:
+                led_rgb_blu();
+                ws2812_fill_color(&ws, 0, 0, 255);
+                break;
+            case MODO_BRANCO:
+                led_rgb_wht();
+                ws2812_fill_color(&ws, 255, 255, 255);
+                break;
+            case MODO_APAGADO:
+                led_rgb_off();
+                ws2812_fill_color(&ws, 0, 0, 0);
+                break;
+            default:
+                break;
             }
         }
 
-        if (lux < LUX_LOW_THRESHOLD) {
+        if (lux < LUX_LOW_THRESHOLD)
+        {
             buzzer_tone(2200, BUZZER_ALERT_MS);
         }
-        if (r >= RED_INTENSE_RAW && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW) {
+        if (r >= RED_INTENSE_RAW && r > g + DOMINANCE_MARGIN_RAW && r > b + DOMINANCE_MARGIN_RAW)
+        {
             buzzer_tone(1200, BUZZER_ALERT_MS);
         }
 
