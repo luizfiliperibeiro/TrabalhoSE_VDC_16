@@ -422,6 +422,18 @@ int main(void)
             buzzer_tone(1200, BUZZER_ALERT_MS);
         }
 
+        // Alerta por baixa luminosidade
+        if (lux < LUX_LOW_THRESHOLD)
+        {
+            buzzer_tone(2200, BUZZER_ALERT_MS);
+        }
+
+        // Alerta por cor vermelha detectada
+        if (!strcmp(ncor, "Vermelho") || !strcmp(ncor, "Vermelho (intenso)"))
+        {
+            buzzer_tone(1200, BUZZER_ALERT_MS);
+        }
+
         oled_draw_status(lux, r, g, b, c, ncor, modo_nome(modo_atual));
         sleep_ms(LOOP_DELAY_MS);
     }
