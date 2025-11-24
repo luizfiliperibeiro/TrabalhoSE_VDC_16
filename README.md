@@ -1,84 +1,149 @@
-# 🎨 Sistema Inteligente de Detecção de Cores e Luminosidade com Feedback Visual e Sonoro 
+# README — Atividade de Depuração no RP2040 (Embarcatech / Prof. Wilton)
 
-Este projeto implementa um **sistema interativo de detecção de cores**, integrando sensores e atuadores na plataforma **BitDogLab + RP2040 (Raspberry Pi Pico W)**.  
-O sistema identifica cores com o **sensor GY-33 (TCS34725)**, mede luminosidade ambiente com o **BH1750**, e fornece **feedback visual, sonoro e textual** via **matriz WS2812**, **LED RGB discreto**, **buzzer PWM** e **display OLED SSD1306**.
+## Descrição da Branch
 
-A interação é controlada por **botões físicos**, permitindo alternar modos de operação e reiniciar o dispositivo.
+Esta branch contém **a versão modificada do projeto original** de sensor de cor e luminosidade, adaptada **exclusivamente para a Atividade de Depuração** da aula ministrada pelo professor **Wilton**.
 
----
-
-## 🧰 Componentes Utilizados
-
-1. 🖥️ **Display OLED SSD1306** (I2C1)  
-2. 🌞 **Sensor de Luminosidade BH1750** (I2C0)  
-3. 🎨 **Sensor de Cores GY-33 (TCS34725)** (I2C0)  
-4. 🌈 **Matriz de LEDs WS2812 (25 pixels)**  
-5. 🔊 **Buzzer PWM** (pino 21)  
-6. 🔘 **Botões A e BOOTSEL**  
-7. 💡 **LED RGB discreto** (pinos 11, 12, 13)
+⚠️ **Importante:**
+A branch principal (`main`) mantém o código original da atividade de “Sensor de Cor e Luminosidade” sem qualquer alteração, conforme instruções do mentor.
 
 ---
 
-## ⚙️ Funcionalidades
+# Objetivo da Atividade
 
-- ✅ **Detecção automática de cores** (Vermelho, Verde, Azul, Mista...)  
-- 🌈 **Matriz WS2812** exibe a cor detectada com intensidade ajustada pela **iluminação ambiente (BH1750)**  
-- 💡 **LED RGB discreto** pisca em ciclo de testes (5s por cor) sem travar o loop principal  
-- 🔊 **Buzzer PWM** emite alertas quando:
-  - O ambiente está muito escuro (lux baixo)  
-  - Uma cor **vermelha intensa** é detectada  
-- 🖥️ **Display OLED** mostra informações em tempo real:  
-  - Modo atual  
-  - Intensidade de luz (Lux)  
-  - Nome da cor detectada  
-  - Valores RGB + canal Clear  
+Demonstrar o uso do **Pico Debug (Picoprobe)** para depuração via **SWD**, utilizando:
 
-- 🔘 **Botão A**: alterna entre os modos:  
-  - Sensor (automático)  
-  - Vermelho, Verde, Azul, Branco, Apagado  
+* Breakpoints
+* Step-by-step (Step Into / Step Over)
+* Inspeção de variáveis
+* Console UART para logs
+* Análise da rotina crítica do projeto
 
-- 🔘 **Botão BOOTSEL (B)**: reinicia a Pico W em modo de boot USB
+O foco da depuração foi a **rotina de leitura e classificação da cor utilizando o sensor GY-33 (TCS34725)**.
 
 ---
 
-## 🚀 Como Usar
+# Modificações em Relação à Branch Principal
 
-1. Clone este repositório:
+Nesta branch foram realizadas alterações *somente para depuração*, incluindo:
 
-   ```bash
-   git clone https://github.com/luizfiliperibeiro/TrabalhoSE_VDC_16.git
-   ```
+### 1. Simplificação do Projeto
 
-2. Importe o projeto na extensão **Raspberry Pi Pico** no VS Code ou outro ambiente de desenvolvimento compatível.
+* Remoção de:
 
-3. Compile o projeto.
+  * BH1750 (sensor de luminosidade)
+  * Display OLED I2C
+  * Matriz WS2812
+* Manutenção apenas do:
 
-4. Conecte a **BitDogLab** via USB.
+  * Sensor de Cor GY-33 (TCS34725)
+  * LED indicativo (GPIO 12)
 
-5. Acompanhe os logs seriais e a exibição no display OLED.
+### 2. Adaptação para Debug com PicoProbe
+
+* Saída `stdio` redirecionada para **UART0 (pinos 16/17)** via:
+
+  ```c
+  stdio_uart_init_full(uart0, BAUD_RATE, UART_TX_PIN, UART_RX_PIN);
+  ```
+* Desativação da USB para `stdin/stdout` no `CMakeLists.txt`:
+
+  ```cmake
+  pico_enable_stdio_usb(medidor_luz_cor 0)
+  pico_enable_stdio_uart(medidor_luz_cor 1)
+  ```
+
+### 3. Inclusão de Prints e Variáveis para Inspeção
+
+* Prints durante leitura do sensor:
+
+  ```c
+  printf("Amostra %lu -> R=%u, G=%u, B=%u, C=%u | Cor: %s\n", ...);
+  ```
+* Variáveis preparadas com clareza para o painel de depuração:
+
+  * `r`, `g`, `b`, `c`
+  * `cor_atual`
+  * `amostra_id`
+
+### 4. Código estruturado para demonstrar depuração passo a passo
+
+* Linha estratégica para breakpoint:
+
+  ```c
+  gy33_read_rgbc(&r, &g, &b, &c);
+  ```
+* Função `nome_cor()` com múltiplas condições para Step Into.
 
 ---
 
-## 📊 Demonstração Visual
+# Rotina Crítica Depurada
 
-Durante a execução:  
-- O **OLED** exibe status do sistema.  
-- O **LED RGB discreto** percorre cores de teste.  
-- A **matriz WS2812** mostra a cor detectada.  
-- O **buzzer** alerta em condições críticas.  
+A rotina selecionada para análise foi:
 
-📹 Vídeo demonstrativo disponível no Google Drive:  
-[🔗 Assista aqui](https://drive.google.com/drive/folders/1IDnXWWkpMzNkOhBNlhSimZaoKrxvoTON?usp=drive_link)
+### Leitura + Classificação de Cor
+
+Funções envolvidas:
+
+```c
+gy33_read_rgbc(&r, &g, &b, &c);
+cor_atual = nome_cor(r, g, b);
+```
+
+Essas linhas permitiram:
+
+* Inspecionar valores brutos do sensor em tempo real
+* Entrar na lógica interna da classificação (`Step Into`)
+* Validar thresholds e dominâncias
+* Introduzir breakpoints nos pontos-chave da máquina de decisão
 
 ---
 
-## 🔧 Estrutura do Código
+# Como Executar a Depuração (Passo a Passo)
 
-- **main.c**: lógica principal do sistema  
-- **ssd1306.h / font.h**: controle do OLED  
-- **bh1750_light_sensor.h**: leitura de luminosidade  
-- **ws2812.h**: controle da matriz de LEDs  
+### 1. Carregar o firmware-picoprobe.uf2 no Pico debugger
+
+Baixar:
+[https://github.com/raspberrypi/picoprobe/releases/latest/download/picoprobe.uf2](https://github.com/raspberrypi/picoprobe/releases/latest/download/picoprobe.uf2)
+
+Gravar no Pico → vira um **Picoprobe**.
+
+### 2. Conectar Picoprobe ao Pico alvo via SWD
+
+| Picoprobe | Pico Alvo |
+| --------- | --------- |
+| GP2       | SWCLK     |
+| GP3       | SWDIO     |
+| GND       | GND       |
+
+⚠️ **Pico alvo precisa estar alimentado (USB).**
+
+### 3. Rodar Flash + Debug
+
+No VS Code:
+
+* `Flash Project (SWD)`
+* `Start Debugging`
 
 ---
 
-📌 Este projeto combina **sensoriamento, processamento e atuação em tempo real**, demonstrando um sistema embarcado responsivo e interativo.  
+# Demonstração de Depuração
+
+> [Vídeo de Demonstração](https://drive.google.com/file/d/11zIy-CqNO5Bkbbo9owxklHbDiZSsgOzJ/view?usp=drive_link)
+
+O vídeo da atividade apresenta:
+
+✔ Breakpoint em `gy33_read_rgbc()`
+✔ Step Over para observar leitura RGBC
+✔ Step Into em `nome_cor()`
+✔ Variáveis monitoradas no painel WATCH
+✔ LED travando durante breakpoints
+✔ Interpretação dos valores com objetos coloridos
+
+---
+
+# Status da Atividade
+
+**Concluída com sucesso.**
+Depuração via Picoprobe funcionando.
+Vídeo gravado conforme solicitado.
