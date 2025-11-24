@@ -37,7 +37,7 @@ Nesta branch foram realizadas alterações *somente para depuração*, incluindo
 * Manutenção apenas do:
 
   * Sensor de Cor GY-33 (TCS34725)
-  * LED indicativo (GPIO 12)
+  * LED indicativo (GPIO 13)
 
 ### 2. Adaptação para Debug com PicoProbe
 
